@@ -1,0 +1,347 @@
+---
+title: "STATS 418-HW3"
+author: "Yuan Yi Chen"
+date: "2017年5月24日"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Topic: Using Machine Learning Techniques to Analyze Whether Customers Will Subscribe the Product (Bank Term Deposit)
+
+
+###Agenda
+####0. Setup the Environment
+####1. Brief Introduction of Our Data Set
+
+####2. Apply the Logistic Regression with Two Packages
+
+####3. Apply the Random Forest with Two Packages
+
+####4. Apply the GBM with Two Packages
+
+####5. Conclusion
+
+#######--------------------------------------------------
+
+###0. Setup the Environment
+Remove Objects
+```{r}
+rm(list=ls())
+```
+
+Clear Memory
+```{r}
+gc(reset=TRUE)
+```
+
+Set Working Directory
+```{r}
+setwd("C:/Users/Eve/Dropbox/UCLA Files/Courses/418 Tools of Data Science/HW3-ML")
+```
+
+
+
+#######--------------------------------------------------
+
+
+###1. Brief Introduction of Our Data Set
+
+This data set was provided by a Portuguese banking institution. We hope to know will the customers subsribe a product after this bank make phone calls to promote their product.
+
+The data set consists with 45211 observations, 15 attributes and 1 output variable. You can take a look at the data here:
+```{r dat}
+dat <- read.csv("test.csv")
+head(dat, 3)
+str(dat)
+```
+
+
+#######--------------------------------------------------
+
+
+###2. Apply the Logistic Regression with Two Packages
+
+First, we will use glmnet package to do the logistic regression. In order to compare our models with different regularizations, we firstly apply **lasso** in our data set. Second, we choose not to use **lasso** to see the difference of predictability of our models.
+
+#######--------------------------------------------------
+
+###(a.) glmnet: with lasso & without lasso
+####Install Packages & Split data
+```{r}
+library(readr)
+library(glmnet)
+library(ROCR)
+
+d <- read_csv("test.csv")
+
+set.seed(123)
+N <- nrow(d)
+idx <- sample(1:N, 0.6*N)
+d_train <- d[idx,]
+d_test <- d[-idx,]
+
+
+X <- Matrix::sparse.model.matrix(y ~ . - 1, data = d)
+X_train <- X[idx,]
+X_test <- X[-idx,]
+```
+
+####With lasso + Regularization
+```{r}
+md1 <- glmnet( X_train, d_train$y, lambda = 0, alpha = 1, family = "binomial")
+```
+
+#####Predict & AUC
+```{r}
+phat <- predict(md1, newx = X_test, type = "response")
+pred1 <- prediction(phat, d_test$y)
+auc1 <- performance(pred1, "auc")@y.values[[1]]
+auc 
+```
+
+####Without lasso + Regularization
+```{r}
+md2 <- glmnet( X_train, d_train$y, lambda = 1, alpha = 0, family = "binomial")
+```
+
+#####Predict & AUC
+```{r}
+phat <- predict(md2, newx = X_test, type = "response")
+pred2 <- prediction(phat, d_test$y)
+auc2 <- performance(pred2, "auc")@y.values[[1]]
+auc2
+```
+
+
+####(b.) h2o: with lasso & without lasso
+####Install Packages & Split data
+```{r}
+library(h2o)
+h2o.init(nthreads=-1)
+
+dx <- h2o.importFile("test.csv")
+
+dx_split <- h2o.splitFrame(dx, ratios = 0.6, seed = 123)
+dx_train <- dx_split[[1]]
+dx_test <- dx_split[[2]]
+
+Xnames <- names(dx_train)[which(names(dx_train)!="y")]
+```
+
+####With lasso + Regularization
+```{r}
+md3 <- h2o.glm(x = Xnames, y = "y", training_frame = dx_train,family = "binomial", alpha = 1, lambda = 0)
+```
+
+See the confusion matrix of our prediction
+```{r}
+h2o.confusionMatrix(md3, dx_test)
+```
+Calculate auc for logistic regression model (using h2o package)
+```{r}
+auc3 <- h2o.auc(h2o.performance(md3, dx_test))
+auc3
+```
+
+
+###Without lasso + Regularization
+```{r}
+md4 <- h2o.glm(x = Xnames, y = "y", training_frame = dx_train, 
+                       family = "binomial", alpha = 0, lambda = 1)
+```
+
+See the confusion matrix of our prediction
+```{r}
+h2o.confusionMatrix(md4, dx_test)
+```
+
+Calculate auc for logistic regression model (using h2o package)
+```{r}
+auc4 <- h2o.auc(h2o.performance(md4, dx_test))
+auc4
+```
+
+#######--------------------------------------------------
+
+
+###3. Apply the Random Forest with Two Packages
+###(a.) h2o
+```{r}
+md5 <- h2o.randomForest(x = Xnames, y = "y", training_frame = dx_train, ntrees = 100, nfolds = 0, max_depth = 10)
+auc5 <- h2o.auc(h2o.performance(md5, dx_test))
+auc5
+```
+
+```{r}
+md6 <- h2o.randomForest(x = Xnames, y = "y", training_frame = dx_train, ntrees = 100, nfolds = 0, max_depth = 20)
+auc6 <- h2o.auc(h2o.performance(md6, dx_test))
+auc6
+```
+
+```{r}
+md7 <- h2o.randomForest(x = Xnames, y = "y", training_frame = dx_train, ntrees = 200, nfolds = 0, max_depth = 10)
+auc7 <- h2o.auc(h2o.performance(md7, dx_test))
+auc7
+```
+
+```{r}
+md8 <- h2o.randomForest(x = Xnames, y = "y", training_frame = dx_train, ntrees = 200, nfolds = 0, max_depth = 20)
+auc8 <- h2o.auc(h2o.performance(md8, dx_test))
+auc8
+```
+
+#######--------------------------------
+###(b.) xgboost
+####Data
+```{r}
+library(readr)
+library(xgboost)
+library(ROCR)
+
+dd <- read_csv("test.csv")
+
+set.seed(123)
+N <- nrow(d)
+idx <- sample(1:N, 0.6*N)
+dd_train <- dd[idx,]
+dd_test <- dd[-idx,]
+
+XX <- Matrix::sparse.model.matrix(y ~ . - 1, data = dd)
+XX_train <- XX[idx,]
+XX_test <- XX[-idx,]
+```
+
+###Tune different amounts of trees and depths
+```{r}
+n_proc <- parallel::detectCores()
+md9 <- xgboost(data = XX_train, label = ifelse(d_train$y=='Y',1,0),
+                nthread = n_proc, nround = 1, max_depth = 10,
+                num_parallel_tree = 100, subsample = 0.632,
+                colsample_bytree = 1/sqrt(length(XX_train@x)/nrow(XX_train)),
+                save_period = NULL)
+
+phat9 <- predict(md9, newdata = XX_test)
+pred9 <- prediction(phat9, dd_test$y)
+auc9 <- performance(pred9, "auc")@y.values[[1]]
+auc9
+```
+
+```{r}
+n_proc <- parallel::detectCores()
+md10 <- xgboost(data = XX_train, label = ifelse(d_train$y=='Y',1,0),
+                nthread = n_proc, nround = 1, max_depth = 20,
+                num_parallel_tree = 100, subsample = 0.632,
+                colsample_bytree = 1/sqrt(length(XX_train@x)/nrow(XX_train)),
+                save_period = NULL)
+
+phat10 <- predict(md10, newdata = XX_test)
+pred10 <- prediction(phat10, dd_test$y)
+auc10 <- performance(pred10, "auc")@y.values[[1]]
+auc10
+```
+
+```{r}
+n_proc <- parallel::detectCores()
+md11 <- xgboost(data = XX_train, label = ifelse(d_train$y=='Y',1,0),
+                nthread = n_proc, nround = 1, max_depth = 10,
+                num_parallel_tree = 200, subsample = 0.632,
+                colsample_bytree = 1/sqrt(length(XX_train@x)/nrow(XX_train)),
+                save_period = NULL)
+
+phat11 <- predict(md11, newdata = XX_test)
+pred11 <- prediction(phat11, dd_test$y)
+auc11 <- performance(pred11, "auc")@y.values[[1]]
+auc11
+```
+
+```{r}
+n_proc <- parallel::detectCores()
+md12 <- xgboost(data = XX_train, label = ifelse(d_train$y=='Y',1,0),
+                nthread = n_proc, nround = 1, max_depth = 20,
+                num_parallel_tree = 200, subsample = 0.632,
+                colsample_bytree = 1/sqrt(length(XX_train@x)/nrow(XX_train)),
+                save_period = NULL)
+
+phat12 <- predict(md12, newdata = XX_test)
+pred12 <- prediction(phat12, dd_test$y)
+auc12 <- performance(pred12, "auc")@y.values[[1]]
+auc12
+```
+
+###Brief Conclusion
+Although xgboost is faster than h2o while conducting random forest analysis, regarding to the predicability (auc), we can clearly see that h2o performs much better than xgboost in the same amounts of trees and max depth. 
+
+Besides, if we insist to use xgboost with random forest model, we need to be aware of the amount of trees. When the amount of trees is small (e.g. 100), we may face a dilemma that even though we tune the depth, the auc does not increase.
+
+To take the above reasons into consideration, I will use h2o package to analysis my bank marketing data set especially when I apply the random forest model.
+
+###h2o
+####1. Trees 100, depth = 10, auc = 0.9266139
+####2. Trees 100, depth = 20, auc = 0.9311172
+####3. Trees 200, depth = 10, auc = 0.9272259 
+####4. Trees 200, depth = 20, auc = 0.9319824
+
+###xgboost
+####1. Trees 100, depth = 10, auc = 0.9063219
+####2. Trees 100, depth = 20, auc = 0.8911604
+####3. Trees 200, depth = 10, auc = 0.903085
+####4. Trees 200, depth = 20, auc = 0.9054363
+
+
+########---------------------------------
+###4. Apply the GBM with Two Packages
+###(a.) h2o
+```{r}
+md13 <- h2o.gbm(x = Xnames, y = "y", training_frame = dx_train, distribution = "bernoulli", 
+              ntrees = 100, max_depth = 10, learn_rate = 0.01, 
+              nbins = 100, seed = 123)
+
+auc13 <- h2o.auc(h2o.performance(md13, dx_test))
+auc13
+```
+```{r}
+md14 <- h2o.gbm(x = Xnames, y = "y", training_frame = dx_train, distribution = "bernoulli", 
+                ntrees = 100, max_depth = 10, learn_rate = 0.1, 
+                nbins = 100, seed = 123)
+
+auc14 <- h2o.auc(h2o.performance(md14, dx_test))
+auc14
+```
+```{r}
+md15 <- h2o.gbm(x = Xnames, y = "y", training_frame = dx_train, distribution = "bernoulli", 
+                ntrees = 200, max_depth = 10, learn_rate = 0.01, 
+                nbins = 100, seed = 123)
+
+auc15 <- h2o.auc(h2o.performance(md15, dx_test))
+auc15
+```
+```{r}
+md16 <- h2o.gbm(x = Xnames, y = "y", training_frame = dx_train, distribution = "bernoulli", 
+                ntrees = 200, max_depth = 10, learn_rate = 0.1, 
+                nbins = 100, seed = 123)
+
+auc16 <- h2o.auc(h2o.performance(md16, dx_test))
+auc16
+```
+###Brief Conclusion to GBM method
+In this GBM analysis, I use h2o package and tune its learning rate as well as the amount of trees to see the difference of our auc. While we control the max depth of our tree at 10, we see that once we increase the learning rate, the auc will also increase. This means that the learning rate of 0.01 is too small for our GBM model, which may lead to longer processing time for the model to find the global optimization.
+
+However, if we compare GBM model with random forest model, we can see that the random forest model's auc performs much better than the GBM model. This may happen because GBM model is easier to overfit our training data set.
+
+
+###h2o
+####1. Trees 100, depth = 10, learn_rate = 0.01, auc = 0.9193935
+####2. Trees 100, depth = 10, learn_rate = 0.1, auc = 0.929407
+####3. Trees 200, depth = 10, learn_rate = 0.01, auc = 0.9257922 
+####4. Trees 200, depth = 10, learn_rate = 0.1, auc = 0.9264358
+
+
+###5. Conclusion
+####As we do different model selections and tunning differnt hyperparameters, we perceive that the random forest performs much better than the other two models. Although it has the disadvantage of processing the whole codes slowly, I may still apply this model to my data set.
+
+####As for the Type I and Type II error (true positives (TP) vs false positives (FP)), from the confusion matrix that I did in glmnet package, we see the false positives happen more than true positives. 
+
+####This may happen when the company is too optomistic to their product that they think the consumers may subscribe their product after the representatives make phone call. To solve this problem, it seems to me that we can do some feature selections to do what features have the higher influences toward our subscription rate. 
